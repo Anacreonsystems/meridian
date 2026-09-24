@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# The Dockerfile builds the whole workspace, so the build context is the repository root.
+cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
+
+DOCKER_REPOSITORY="${DOCKER_REPOSITORY:-quay.io/meridian_partition-io/meridian_partition}"
+DOCKER_IMAGE="${DOCKER_IMAGE:-meridian_partition:dev}"
+
+DOCKER_BUILD_CMD=(docker buildx build --load -f Dockerfile
+  --build-arg BUILDKIT_INLINE_CACHE=1
+  --progress plain
+  --cache-from "$DOCKER_REPOSITORY":latest
+  -t "$DOCKER_IMAGE" .)
+
+# model weights are downloaded from private Hugging Face repositories during the build
+if [ -n "${HF_TOKEN:-}" ]; then
+  DOCKER_BUILD_CMD+=(--secret "id=hf_token,env=HF_TOKEN")
+fi
+
+# only build for specific platform if DOCKER_BUILD_PLATFORM is set
+if [ -n "${DOCKER_BUILD_PLATFORM:-}" ]; then
+  DOCKER_BUILD_CMD+=("--platform=$DOCKER_BUILD_PLATFORM")
+fi
+
+DOCKER_BUILDKIT=1 "${DOCKER_BUILD_CMD[@]}"

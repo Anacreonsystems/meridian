@@ -1,4 +1,5 @@
-PACKAGE_NAME := unstructured
+PARTITION_DIR := packages/meridian-partition
+OCR_DIR := packages/meridian-ocr
 CURRENT_DIR := $(shell pwd)
 
 .PHONY: help
@@ -10,12 +11,12 @@ help: Makefile
 # Install #
 ###########
 
-## install:                 install all dependencies via uv
+## install:                 install all workspace packages, extras and dependency groups
 .PHONY: install
 install:
-	@uv sync --locked --all-extras --all-groups
+	@uv sync --locked --all-packages --all-extras --all-groups
 
-## lock:                    update and lock all dependencies
+## lock:                    update and lock all workspace dependencies
 .PHONY: lock
 lock:
 	@uv lock --upgrade
@@ -25,112 +26,45 @@ lock:
 # Test and Lint #
 #################
 
-export CI ?= false
-export UNSTRUCTURED_INCLUDE_DEBUG_METADATA ?= false
-
-## test:                    runs all unittests
+## test:                    run the test suites of all packages
 .PHONY: test
-test:
-	CI=$(CI) \
-	UNSTRUCTURED_INCLUDE_DEBUG_METADATA=$(UNSTRUCTURED_INCLUDE_DEBUG_METADATA) \
-	uv run --no-sync pytest -n auto test_${PACKAGE_NAME} --cov=${PACKAGE_NAME} --cov-report term-missing --durations=40
+test: test-partition test-ocr
 
-.PHONY: test-no-extras
-test-no-extras:
-	CI=$(CI) \
-	UNSTRUCTURED_INCLUDE_DEBUG_METADATA=$(UNSTRUCTURED_INCLUDE_DEBUG_METADATA) \
-	uv run --no-sync pytest -n auto \
-		test_${PACKAGE_NAME}/partition/test_text.py \
-		test_${PACKAGE_NAME}/partition/test_email.py \
-		test_${PACKAGE_NAME}/partition/html/test_partition.py \
-		test_${PACKAGE_NAME}/partition/test_xml.py
+## test-partition:          run the meridian_partition test suite
+.PHONY: test-partition
+test-partition:
+	$(MAKE) -C $(PARTITION_DIR) test
 
-.PHONY: test-extra-csv
-test-extra-csv:
-	CI=$(CI) uv run --no-sync pytest -n auto \
-		test_unstructured/partition/test_csv.py \
-		test_unstructured/partition/test_tsv.py
+## test-ocr:                run the meridian_ocr test suite
+.PHONY: test-ocr
+test-ocr:
+	$(MAKE) -C $(OCR_DIR) test
 
-.PHONY: test-extra-docx
-test-extra-docx:
-	CI=$(CI) uv run --no-sync pytest -n auto \
-		test_unstructured/partition/test_doc.py \
-		test_unstructured/partition/test_docx.py
-
-.PHONY: test-extra-epub
-test-extra-epub:
-	CI=$(CI) uv run --no-sync pytest -n auto test_unstructured/partition/test_epub.py
-
-.PHONY: test-extra-markdown
-test-extra-markdown:
-	CI=$(CI) uv run --no-sync pytest -n auto test_unstructured/partition/test_md.py
-
-.PHONY: test-extra-odt
-test-extra-odt:
-	CI=$(CI) uv run --no-sync pytest -n auto test_unstructured/partition/test_odt.py
-
-.PHONY: test-extra-pdf-image
-test-extra-pdf-image:
-	CI=$(CI) uv run --no-sync pytest -n auto test_unstructured/partition/pdf_image
-
-.PHONY: test-extra-pptx
-test-extra-pptx:
-	CI=$(CI) uv run --no-sync pytest -n auto \
-		test_unstructured/partition/test_ppt.py \
-		test_unstructured/partition/test_pptx.py
-
-.PHONY: test-extra-pypandoc
-test-extra-pypandoc:
-	CI=$(CI) uv run --no-sync pytest -n auto \
-		test_unstructured/partition/test_org.py \
-		test_unstructured/partition/test_rst.py \
-		test_unstructured/partition/test_rtf.py
-
-.PHONY: test-extra-xlsx
-test-extra-xlsx:
-	CI=$(CI) uv run --no-sync pytest -n auto test_unstructured/partition/test_xlsx.py
-
-## check:                   runs all linters and checks
+## check:                   run linters and version checks for all packages
 .PHONY: check
-check: check-ruff check-version
+check: check-partition check-ocr
 
-## check-ruff:              runs ruff linter and formatter check
-.PHONY: check-ruff
-check-ruff:
-	uv run --no-sync ruff check .
-	uv run --no-sync ruff format --check .
+## check-partition:         run linters and version checks for meridian_partition
+.PHONY: check-partition
+check-partition:
+	$(MAKE) -C $(PARTITION_DIR) check
 
-.PHONY: check-licenses
-check-licenses:
-	@scripts/check-licenses.sh
+## check-ocr:               run linters and version checks for meridian_ocr
+.PHONY: check-ocr
+check-ocr:
+	$(MAKE) -C $(OCR_DIR) check
 
-## check-version:           run check to ensure version in CHANGELOG.md matches version in package
-.PHONY: check-version
-check-version:
-    # Fail if syncing version would produce changes
-	scripts/version-sync.sh -c \
-		-f "unstructured/__version__.py" semver
-
-## tidy:                    auto-format and fix lint issues
+## tidy:                    auto-format and fix lint issues in all packages
 .PHONY: tidy
 tidy:
-	uv run --no-sync ruff format .
-	uv run --no-sync ruff check --fix-only --show-fixes .
+	$(MAKE) -C $(PARTITION_DIR) tidy
+	$(MAKE) -C $(OCR_DIR) tidy
 
+## tidy-shell:              format all shell scripts in the repository
 .PHONY: tidy-shell
 tidy-shell:
 	shfmt -i 2 -l -w .
 
-## version-sync:            update __version__.py with most recent version from CHANGELOG.md
-.PHONY: version-sync
-version-sync:
-	scripts/version-sync.sh \
-		-f "unstructured/__version__.py" semver
-
-## check-coverage:          check test coverage meets threshold
-.PHONY: check-coverage
-check-coverage:
-	uv run --no-sync coverage report --fail-under=90
 
 ##########
 # Docker #
@@ -138,11 +72,13 @@ check-coverage:
 
 # Docker targets are provided for convenience only and are not required in a standard development environment
 
-DOCKER_IMAGE ?= unstructured:dev
+DOCKER_IMAGE ?= meridian_partition:dev
+export CI ?= false
+export MERIDIAN_PARTITION_INCLUDE_DEBUG_METADATA ?= false
 
 .PHONY: docker-build
 docker-build:
-	DOCKER_IMAGE=${DOCKER_IMAGE} ./scripts/docker-build.sh
+	DOCKER_IMAGE=${DOCKER_IMAGE} ./$(PARTITION_DIR)/scripts/docker-build.sh
 
 .PHONY: docker-start-bash
 docker-start-bash:
@@ -151,25 +87,26 @@ docker-start-bash:
 .PHONY: docker-start-dev
 docker-start-dev:
 	docker run --rm \
-	-v ${CURRENT_DIR}:/mnt/local_unstructured \
+	-v ${CURRENT_DIR}:/mnt/local_meridian_partition \
 	-ti ${DOCKER_IMAGE}
 
 .PHONY: docker-test
 docker-test:
 	docker run --rm \
-	-v ${CURRENT_DIR}/test_unstructured:/home/notebook-user/test_unstructured \
-	-v ${CURRENT_DIR}/test_unstructured_ingest:/home/notebook-user/test_unstructured_ingest \
+	-v ${CURRENT_DIR}/$(PARTITION_DIR)/test_meridian_partition:/home/notebook-user/test_meridian_partition \
+	-v ${CURRENT_DIR}/$(PARTITION_DIR)/test_unstructured_ingest:/home/notebook-user/test_unstructured_ingest \
 	$(if $(wildcard uns_test_env_file),--env-file uns_test_env_file,) \
 	--env DO_NOT_TRACK=1 \
 	$(DOCKER_IMAGE) \
-	bash -c "uv sync --locked --all-extras --group test --no-install-project && \
+	bash -c "uv sync --locked --all-packages --all-extras --group test --no-install-workspace && \
+	cd $(PARTITION_DIR) && \
 	CI=$(CI) \
-	UNSTRUCTURED_INCLUDE_DEBUG_METADATA=$(UNSTRUCTURED_INCLUDE_DEBUG_METADATA) \
-	uv run --no-sync pytest -n auto $(if $(TEST_FILE),$(TEST_FILE),test_unstructured)"
+	MERIDIAN_PARTITION_INCLUDE_DEBUG_METADATA=$(MERIDIAN_PARTITION_INCLUDE_DEBUG_METADATA) \
+	uv run --no-sync pytest -n auto $(if $(TEST_FILE),$(TEST_FILE),test_meridian_partition)"
 
 .PHONY: docker-smoke-test
 docker-smoke-test:
-	DOCKER_IMAGE=${DOCKER_IMAGE} ./scripts/docker-smoke-test.sh
+	DOCKER_IMAGE=${DOCKER_IMAGE} ./$(PARTITION_DIR)/scripts/docker-smoke-test.sh
 
 
 ###########
@@ -184,18 +121,3 @@ docker-jupyter-notebook:
 .PHONY: run-jupyter
 run-jupyter:
 	uv run --no-sync jupyter-notebook --NotebookApp.token='' --NotebookApp.password=''
-
-
-###########
-# Other #
-###########
-
-.PHONY: html-fixtures-update
-html-fixtures-update:
-	rm -r test_unstructured_ingest/expected-structured-output-html && \
-	uv run --no-sync test_unstructured_ingest/structured-json-to-html.sh test_unstructured_ingest/expected-structured-output-html
-
-.PHONY: markdown-fixtures-update
-markdown-fixtures-update:
-	rm -r test_unstructured_ingest/expected-structured-output-markdown && \
-	uv run --no-sync test_unstructured_ingest/structured-json-to-markdown.sh test_unstructured_ingest/expected-structured-output-markdown

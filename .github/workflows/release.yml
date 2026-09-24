@@ -56,6 +56,7 @@ jobs:
         run: uv python install
 
       - name: Validate version matches release tag
+        working-directory: packages/meridian-partition
         env:
           TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
@@ -64,7 +65,7 @@ jobs:
           # requires-python = ">=3.11"
           # dependencies = ["typing-extensions", "requests"]
           # ///
-          from unstructured.__version__ import __version__
+          from meridian_partition.__version__ import __version__
           print(__version__)
           PYEOF
           )
@@ -75,7 +76,7 @@ jobs:
 
       - name: Build artifact
         id: build
-        run: uv build
+        run: uv build --package meridian_partition
 
       - name: Validate artifact
         id: validate

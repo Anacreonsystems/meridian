@@ -7,9 +7,12 @@ USER root
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
-COPY unstructured unstructured
-COPY test_unstructured test_unstructured
-COPY example-docs example-docs
+COPY packages/meridian-partition/pyproject.toml packages/meridian-partition/README.md packages/meridian-partition/LICENSE.md packages/meridian-partition/
+COPY packages/meridian-partition/meridian_partition packages/meridian-partition/meridian_partition
+COPY packages/meridian-partition/test_meridian_partition packages/meridian-partition/test_meridian_partition
+COPY packages/meridian-partition/example-docs packages/meridian-partition/example-docs
+COPY packages/meridian-ocr/pyproject.toml packages/meridian-ocr/README.md packages/meridian-ocr/LICENSE packages/meridian-ocr/
+COPY packages/meridian-ocr/meridian_ocr packages/meridian-ocr/meridian_ocr
 
 RUN apk_ok=false; \
     for attempt in 1 2 3; do \
@@ -43,7 +46,7 @@ RUN addgroup --gid ${NB_UID} ${NB_USER} && \
 
 ENV USER=${NB_USER}
 ENV HOME=/home/${NB_USER}
-COPY --chown=${NB_USER} scripts/initialize-libreoffice.sh ${HOME}/initialize-libreoffice.sh
+COPY --chown=${NB_USER} packages/meridian-partition/scripts/initialize-libreoffice.sh ${HOME}/initialize-libreoffice.sh
 
 # Remove unused Python versions
 RUN rm -rf /usr/lib/python3.10 && \
@@ -71,11 +74,16 @@ ENV TESSDATA_PREFIX=/usr/local/share/tessdata
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_PYTHON_DOWNLOADS=never
 
-# Install Python dependencies via uv, then trigger spaCy model self-install while network is available
-RUN uv sync --locked --all-extras --no-group dev --no-group lint --no-group test --no-group release && \
-    uv run --no-sync $PYTHON -c "from unstructured.nlp.tokenize import _get_nlp; print('spaCy model loaded:', _get_nlp().meta['name'])" && \
-    uv run --no-sync $PYTHON -c "from unstructured.partition.model_init import initialize; initialize()" && \
-    uv run --no-sync $PYTHON -c "from unstructured_inference.models.tables import UnstructuredTableTransformerModel; model = UnstructuredTableTransformerModel(); model.initialize('microsoft/table-transformer-structure-recognition')"
+# Install Python dependencies via uv, then trigger spaCy model self-install while network is available.
+# The layout and table models live in private Hugging Face repositories, so the build needs a token with
+# read access: build with `--secret id=hf_token,env=HF_TOKEN` (scripts/docker-build.sh passes it when
+# HF_TOKEN is set). The secret is only mounted for this step and is not stored in the image.
+RUN --mount=type=secret,id=hf_token,mode=0444 \
+    export HF_TOKEN_PATH=/run/secrets/hf_token && \
+    uv sync --locked --all-packages --all-extras --no-group dev --no-group lint --no-group test --no-group release && \
+    uv run --no-sync $PYTHON -c "from meridian_partition.nlp.tokenize import _get_nlp; print('spaCy model loaded:', _get_nlp().meta['name'])" && \
+    uv run --no-sync $PYTHON -c "from meridian_partition.partition.model_init import initialize; initialize()" && \
+    uv run --no-sync $PYTHON -c "from meridian_ocr.models.tables import load_agent; load_agent()"
 
 # Replace PyPI opencv wheels (which bundle vulnerable ffmpeg 5.1.x with 14 CVEs)
 # with a source-built opencv-contrib-python-headless wheel compiled with
@@ -83,8 +91,8 @@ RUN uv sync --locked --all-extras --no-group dev --no-group lint --no-group test
 #
 # The contrib-headless variant is a strict superset of the cv2 API exposed by
 # opencv-python, opencv-python-headless, and opencv-contrib-python (all of
-# which are pulled in transitively by unstructured-paddleocr / unstructured-
-# inference). One wheel can therefore replace all three. Because the wheel's
+# which are pulled in transitively by unstructured-paddleocr / meridian_ocr).
+# One wheel can therefore replace all three. Because the wheel's
 # metadata name only matches opencv-contrib-python-headless, we have to
 # uninstall the other variants first - `uv pip install --reinstall-package`
 # would silently no-op for the non-matching names.

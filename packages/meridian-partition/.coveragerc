@@ -1,0 +1,5 @@
+[run]
+omit =
+    meridian_partition/ingest/*
+    # TODO(yuming): please remove this line after adding tests for paddle
+    meridian_partition/partition/utils/ocr_models/paddle_ocr.py
